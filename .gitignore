@@ -1,1 +1,4 @@
 infrastructure/.venv
+infrastructure/__pycache__
+infrastructure/cdk.out
+
