@@ -5,8 +5,10 @@ from aws_cdk import (
     aws_events as events,
     aws_events_targets as targets,
     aws_iam as iam,
+    
 )
 
+import aws_cdk as cdk
 from constructs import Construct
 
 
@@ -23,6 +25,12 @@ class FishingBackendStack(Stack):
             versioned=False,
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
+            lifecycle_rules=[
+                s3.LifecycleRule(
+                    prefix="weather-cache/",
+                    expiration=Duration.days(8),  # 7 hari forecast + 1 hari buffer
+                )
+            ],
         )
 
         weather_processor_fn = _lambda.Function(
@@ -31,8 +39,10 @@ class FishingBackendStack(Stack):
             function_name="weather-processor",
             runtime=_lambda.Runtime.PYTHON_3_12,
             handler="handler.handler",
-            code=_lambda.Code.from_asset("../lambda_functions/weather_processor"),
-            timeout=Duration.seconds(30),
+            code=_lambda.Code.from_asset(
+                "../lambda_functions/weather_processor",
+            ),
+            timeout=Duration.seconds(180),
             environment={
                 "BUCKET_NAME": weather_cache_bucket.bucket_name,
             },
@@ -51,6 +61,9 @@ class FishingBackendStack(Stack):
         weather_processor_rule = events.Rule(
             self,
             "WeatherProcessorSchedule",
-            schedule=events.Schedule.rate(Duration.hours(3)),
+            schedule=events.Schedule.cron(
+                minute="0",
+                hour="8",
+            ),
         )
         weather_processor_rule.add_target(targets.LambdaFunction(weather_processor_fn))

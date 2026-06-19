@@ -1,5 +1,0 @@
-infrastructure/.venv/
-infrastructure/__pycache__/
-*.pyc
-infrastructure/cdk.out/
-
