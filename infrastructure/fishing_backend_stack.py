@@ -5,9 +5,13 @@ from aws_cdk import (
     aws_events as events,
     aws_events_targets as targets,
     aws_iam as iam,
+    aws_apigatewayv2 as apigwv2,
+    aws_apigatewayv2_integrations as integrations,
 )
 
 import aws_cdk as cdk
+
+from aws_cdk import aws_certificatemanager as acm
 from constructs import Construct
 
 
@@ -116,4 +120,45 @@ class FishingBackendStack(Stack):
                 actions=["lambda:InvokeFunction"],
                 resources=[weather_analysis_fn.function_arn],
             )
+        )
+
+        # ── API Gateway HTTP API ───────────────────────────────────────────────
+        http_api = apigwv2.HttpApi(
+            self,
+            "FishingWeatherApi",
+            api_name="fishing-weather-api",
+            cors_preflight=apigwv2.CorsPreflightOptions(
+                allow_origins=["https://fishing.adiendendra.com"],
+                allow_methods=[apigwv2.CorsHttpMethod.GET],
+                allow_headers=["Content-Type"],
+            ),
+        )
+
+        # Route GET /weather → weather_handler Lambda
+        http_api.add_routes(
+            path="/weather",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=integrations.HttpLambdaIntegration(
+                "WeatherHandlerIntegration",
+                weather_handler_fn,
+            ),
+        )
+
+        # Custom domain — api.fishing.adiendendra.com
+        domain_name = apigwv2.DomainName(
+            self,
+            "ApiDomainName",
+            domain_name="api.fishing.adiendendra.com",
+            certificate=acm.Certificate.from_certificate_arn(
+                self,
+                "ApiCertificate",
+                "arn:aws:acm:ap-southeast-2:121861012913:certificate/27efc763-43a6-4ae8-89a8-b8fe7d3016e4",
+            ),
+        )
+
+        apigwv2.ApiMapping(
+            self,
+            "ApiMapping",
+            api=http_api,
+            domain_name=domain_name,
         )
