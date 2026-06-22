@@ -5,7 +5,6 @@ from aws_cdk import (
     aws_events as events,
     aws_events_targets as targets,
     aws_iam as iam,
-    
 )
 
 import aws_cdk as cdk
@@ -15,7 +14,8 @@ from constructs import Construct
 class FishingBackendStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
-
+        
+        # ── S3 Bucket ──────────────────────────────────────────────────────────
         weather_cache_bucket = s3.Bucket(
             self,
             "WeatherCacheBucket",
@@ -33,6 +33,9 @@ class FishingBackendStack(Stack):
             ],
         )
 
+        gemini_param_arn = f"arn:aws:ssm:{self.region}:{self.account}:parameter/fishing-backend/gemini-api-key"
+
+        # ── weather_processor (cron harian 08:00 UTC, pre-warm Botany Bay) ──────
         weather_processor_fn = _lambda.Function(
             self,
             "WeatherProcessorFunction",
@@ -47,15 +50,12 @@ class FishingBackendStack(Stack):
                 "BUCKET_NAME": weather_cache_bucket.bucket_name,
             },
         )
-
-        gemini_param_arn = f"arn:aws:ssm:{self.region}:{self.account}:parameter/fishing-backend/gemini-api-key"
         weather_processor_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],
                 resources=[gemini_param_arn],
             )
         )
-
         weather_cache_bucket.grant_put(weather_processor_fn, "weather-cache/*")
 
         weather_processor_rule = events.Rule(
@@ -67,3 +67,53 @@ class FishingBackendStack(Stack):
             ),
         )
         weather_processor_rule.add_target(targets.LambdaFunction(weather_processor_fn))
+
+        # ── weather_analysis (async Gemini, dipanggil fire-and-forget) ──────────
+        weather_analysis_fn = _lambda.Function(
+            self,
+            "WeatherAnalysisFunction",
+            function_name="weather-analysis",
+            runtime=_lambda.Runtime.PYTHON_3_12,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset(
+                "../lambda_functions/weather_analysis",
+            ),
+            timeout=Duration.seconds(180),  # Gemini bisa lambat, sama dengan processor
+            environment={
+                "BUCKET_NAME": weather_cache_bucket.bucket_name,
+            },
+        )
+        weather_analysis_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[gemini_param_arn],
+            )
+        )
+        
+        weather_cache_bucket.grant_put(weather_analysis_fn, "weather-cache/*")
+        weather_cache_bucket.grant_read(weather_analysis_fn, "weather-cache/*")
+
+        # ── weather_handler (API Gateway triggered, cache-aside) ─────────────────
+        weather_handler_fn = _lambda.Function(
+            self,
+            "WeatherHandlerFunction",
+            function_name="weather-handler",
+            runtime=_lambda.Runtime.PYTHON_3_12,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset(
+                "../lambda_functions/weather_handler",
+            ),
+            timeout=Duration.seconds(30),   # Cukup — Gemini ada di weather_analysis
+            environment={
+                "BUCKET_NAME": weather_cache_bucket.bucket_name,
+                "ANALYSIS_FUNCTION_NAME": weather_analysis_fn.function_name,
+            },
+        )
+        weather_cache_bucket.grant_read(weather_handler_fn, "weather-cache/*")
+        weather_cache_bucket.grant_put(weather_handler_fn, "weather-cache/*")
+        weather_handler_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[weather_analysis_fn.function_arn],
+            )
+        )
