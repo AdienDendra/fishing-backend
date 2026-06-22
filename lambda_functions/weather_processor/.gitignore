@@ -33,3 +33,6 @@ pyasn1_modules/
 *.so
 *.cpython-*.so
 typing_extensions.py
+ai_analysis.py
+config.py
+weather_data.py
