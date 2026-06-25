@@ -26,7 +26,17 @@ def cors_response(status_code: int, body: dict) -> dict:
         "statusCode": status_code,
         "headers": {
             "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "https://fishing.adiendendra.com",
+            # (untuk development)
+            allowed_origins = [
+                "https://fishing.adiendendra.com",
+                "http://localhost:1313",
+                "http://localhost:8080",
+            ]
+            origin = event.get("headers", {}).get("origin", "")
+            cors_origin = origin if origin in allowed_origins else "https://fishing.adiendendra.com"
+
+            # lalu di cors_response:
+            "Access-Control-Allow-Origin": cors_origin,
             "Access-Control-Allow-Methods": "GET,OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
         },
