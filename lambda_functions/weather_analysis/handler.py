@@ -24,20 +24,21 @@ def get_gemini_client():
     return _gemini_client
 
 
-def format_data_points(marine, weather, tide, start_idx=0, hours=24):
-    # Data sudah di-slice 24 jam oleh weather_handler sebelum dikirim
-    # start_idx di sini selalu 0 karena array sudah dimulai dari jam pertama hari itu
-    hm = marine
-    hw = weather
+def format_data_points(res_m, res_w, res_t, start_idx=0, hours=24):
+    hm = res_m.get("hourly", {})
+    hw = res_w.get("hourly", {})
     end_idx = start_idx + hours
     return (
         f"Wave height (m): {hm.get('wave_height', [])[start_idx:end_idx]}\n"
+        f"Wave period (s): {hm.get('wave_period', [])[start_idx:end_idx]}\n"
         f"Swell height (m): {hm.get('swell_wave_height', [])[start_idx:end_idx]}\n"
         f"Swell period (s): {hm.get('swell_wave_period', [])[start_idx:end_idx]}\n"
         f"Wind speed (km/h): {hw.get('wind_speed_10m', [])[start_idx:end_idx]}\n"
+        f"Wind direction: {hw.get('wind_direction_10m', [])[start_idx:end_idx]}\n"
         f"Temperature (C): {hw.get('temperature_2m', [])[start_idx:end_idx]}\n"
-        f"Pressure (hPa): {hw.get('surface_pressure', [])[start_idx:end_idx]}\n"
-        f"Tide height (m): {(tide or [])[start_idx:end_idx]}"
+        f"Apparent temperature (C): {hw.get('apparent_temperature', [])[start_idx:end_idx]}\n"
+        f"Pressure (hPa): {hw.get('pressure_msl', [])[start_idx:end_idx]}\n"
+        f"Tide height (m): {(res_t or [])[start_idx:end_idx]}"
     )
 
 

@@ -11,6 +11,28 @@ lambda_client = boto3.client("lambda")
 BUCKET_NAME = os.environ["BUCKET_NAME"]
 ANALYSIS_FUNCTION_NAME = os.environ["ANALYSIS_FUNCTION_NAME"]
 
+# Whitelist origin yang diizinkan — production + localhost untuk development
+ALLOWED_ORIGINS = [
+    "https://fishing.adiendendra.com",
+    "http://localhost:1313",
+    "http://localhost:8080",
+]
+
+
+def cors_response(status_code: int, body: dict, origin: str = "") -> dict:
+    # Kalau origin ada di whitelist, pakai itu — kalau tidak, fallback ke production
+    cors_origin = origin if origin in ALLOWED_ORIGINS else "https://fishing.adiendendra.com"
+    return {
+        "statusCode": status_code,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": cors_origin,
+            "Access-Control-Allow-Methods": "GET,OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+        },
+        "body": json.dumps(body),
+    }
+
 
 def make_cache_key(lat: float, lon: float, date_str: str) -> str:
     return f"weather-cache/{round(lat, 4)}_{round(lon, 4)}/{date_str}.json"
@@ -20,34 +42,13 @@ def get_day_start_index(all_times, target_date_str):
     return next((i for i, t in enumerate(all_times) if t.startswith(target_date_str)), -1)
 
 
-def cors_response(status_code: int, body: dict) -> dict:
-    # CORS headers — diperlukan agar browser Hugo frontend bisa fetch ke API Gateway
-    return {
-        "statusCode": status_code,
-        "headers": {
-            "Content-Type": "application/json",
-            # (untuk development)
-            allowed_origins = [
-                "https://fishing.adiendendra.com",
-                "http://localhost:1313",
-                "http://localhost:8080",
-            ]
-            origin = event.get("headers", {}).get("origin", "")
-            cors_origin = origin if origin in allowed_origins else "https://fishing.adiendendra.com"
-
-            # lalu di cors_response:
-            "Access-Control-Allow-Origin": cors_origin,
-            "Access-Control-Allow-Methods": "GET,OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        },
-        "body": json.dumps(body),
-    }
-
-
 def handler(event, context):
+    # Ambil origin dari request header — untuk CORS
+    origin = event.get("headers", {}).get("origin", "")
+
     # Handle preflight CORS request dari browser
     if event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
-        return cors_response(200, {})
+        return cors_response(200, {}, origin)
 
     # 1. Parse query parameters dari API Gateway
     params = event.get("queryStringParameters") or {}
@@ -57,7 +58,7 @@ def handler(event, context):
         date_str = params["date"]       # format: YYYY-MM-DD
         location_name = params.get("name", f"{lat},{lon}")
     except (KeyError, ValueError, TypeError):
-        return cors_response(400, {"error": "Missing or invalid parameters: lat, lon, date required"})
+        return cors_response(400, {"error": "Missing or invalid parameters: lat, lon, date required"}, origin)
 
     cache_key = make_cache_key(lat, lon, date_str)
 
@@ -68,29 +69,29 @@ def handler(event, context):
 
         # Cache HIT — return langsung, apapun statusnya (partial atau complete)
         print(f"✅ Cache HIT: {cache_key}")
-        return cors_response(200, cached)
+        return cors_response(200, cached, origin)
 
     except s3.exceptions.NoSuchKey:
         # Cache MISS — lanjut fetch dari Open-Meteo
         print(f"⚠️ Cache MISS: {cache_key}")
 
     except Exception as e:
-        # S3 error lain (permission, dll) — log tapi tetap lanjut fetch
+        # S3 error lain — log tapi tetap lanjut fetch
         print(f"⚠️ S3 read error: {e}")
 
     # 3. Cache MISS — fetch data dari Open-Meteo
     try:
         res_m, res_w, res_t, sea_lat, sea_lon = get_weather_data(lat, lon)
     except Exception as e:
-        return cors_response(500, {"error": f"Failed to fetch weather data: {str(e)}"})
+        return cors_response(500, {"error": f"Failed to fetch weather data: {str(e)}"}, origin)
 
     all_times = res_w.get("hourly", {}).get("time", [])
     start_idx = get_day_start_index(all_times, date_str)
 
     if start_idx == -1:
-        return cors_response(404, {"error": f"No data available for date: {date_str}"})
+        return cors_response(404, {"error": f"No data available for date: {date_str}"}, origin)
 
-    # 4. Hitung astronomic data untuk tanggal yang diminta
+    # 4. Hitung astronomy data untuk tanggal yang diminta
     try:
         target_dt = datetime.strptime(date_str, "%Y-%m-%d")
         astro = get_astronomy_data(target_dt, lat, lon)
@@ -100,7 +101,7 @@ def handler(event, context):
 
     # 5. Susun payload "partial" — data cuaca lengkap, analysis belum ada
     payload = {
-        "status": "partial",        # frontend tahu AI masih processing
+        "status": "partial",
         "name": location_name,
         "lat": lat,
         "lon": lon,
@@ -135,7 +136,6 @@ def handler(event, context):
         print(f"⚠️ S3 write error (non-fatal): {e}")
 
     # 7. Trigger weather_analysis Lambda secara async (fire-and-forget)
-    # InvocationType="Event" = Lambda return 202 langsung, tidak tunggu selesai
     try:
         analysis_payload = {
             "lat": lat,
@@ -152,13 +152,12 @@ def handler(event, context):
         }
         lambda_client.invoke(
             FunctionName=ANALYSIS_FUNCTION_NAME,
-            InvocationType="Event",     # fire-and-forget, tidak tunggu response
+            InvocationType="Event",     # fire-and-forget
             Payload=json.dumps(analysis_payload),
         )
         print(f"🚀 Triggered weather_analysis async for {location_name} {date_str}")
     except Exception as e:
-        # Gagal trigger analysis tidak fatal — user tetap dapat data cuaca
         print(f"⚠️ Failed to trigger analysis (non-fatal): {e}")
 
     # 8. Return data cuaca ke frontend LANGSUNG tanpa tunggu Gemini
-    return cors_response(200, payload)
+    return cors_response(200, payload, origin)
