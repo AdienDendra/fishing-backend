@@ -128,9 +128,13 @@ class FishingBackendStack(Stack):
             "FishingWeatherApi",
             api_name="fishing-weather-api",
             cors_preflight=apigwv2.CorsPreflightOptions(
-                allow_origins=["https://fishing.adiendendra.com"],
-                allow_methods=[apigwv2.CorsHttpMethod.GET],
-                allow_headers=["Content-Type"],
+            allow_origins=[
+                "https://fishing.adiendendra.com",
+                "http://localhost:1313",
+                "http://localhost:8080",
+            ],
+            allow_methods=[apigwv2.CorsHttpMethod.GET],
+            allow_headers=["Content-Type"],
             ),
         )
 
