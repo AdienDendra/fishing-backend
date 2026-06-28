@@ -7,13 +7,12 @@ from google import genai
 
 from weather_data import get_weather_data, get_astronomy_data
 from ai_analysis import generate_weather_analysis
+from config import THE_LEAP_LAT, THE_LEAP_LON
 
 s3 = boto3.client("s3")
 ssm = boto3.client("ssm")
 BUCKET_NAME = os.environ["BUCKET_NAME"]
 
-BOTANY_BAY_LAT = -33.9929
-BOTANY_BAY_LON = 151.2172
 
 _gemini_client = None
 
@@ -59,7 +58,7 @@ def format_data_points(res_m, res_w, res_t, start_idx, hours=24):
 
 def handler(event, context):
     # Fetch semua data sekaligus — satu call ke Open-Meteo dapat 7 hari
-    res_m, res_w, res_t, sea_lat, sea_lon = get_weather_data(BOTANY_BAY_LAT, BOTANY_BAY_LON)
+    res_m, res_w, res_t, sea_lat, sea_lon = get_weather_data(THE_LEAP_LAT, THE_LEAP_LON)
     client = get_gemini_client()
 
     all_times = res_w.get("hourly", {}).get("time", [])
@@ -76,16 +75,16 @@ def handler(event, context):
             print(f"⚠️ No data found for {date_str}, skipping.")
             continue
 
-        astro = get_astronomy_data(target_dt, BOTANY_BAY_LAT, BOTANY_BAY_LON)
+        astro = get_astronomy_data(target_dt, THE_LEAP_LAT, THE_LEAP_LON)
         data_points = format_data_points(res_m, res_w, res_t, start_idx)
-        ai_text, model_used = generate_weather_analysis(client, "Botany Bay", date_str, data_points)
+        ai_text, model_used = generate_weather_analysis(client, "The Leap, Kurnell", date_str, data_points)
 
         # Payload per hari — hanya data 24 jam untuk tanggal ini
         payload = {
-            "name": "Botany Bay",
+            "name": "The Leap, Kurnell",
             "state": "NSW",
-            "lat": BOTANY_BAY_LAT,
-            "lon": BOTANY_BAY_LON,
+            "lat": THE_LEAP_LAT,
+            "lon": THE_LEAP_LON,
             "sea_lat": sea_lat,
             "sea_lon": sea_lon,
             "date": date_str,
@@ -106,7 +105,7 @@ def handler(event, context):
 
         s3.put_object(
             Bucket=BUCKET_NAME,
-            Key=make_cache_key(BOTANY_BAY_LAT, BOTANY_BAY_LON, date_str),
+            Key=make_cache_key(THE_LEAP_LAT, THE_LEAP_LON, date_str),
             Body=json.dumps(payload),
             ContentType="application/json",
         )

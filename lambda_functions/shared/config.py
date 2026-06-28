@@ -35,3 +35,7 @@ MODEL_LIST = [
         'gemini-2.5-flash',
         'gemini-2.5-flash-lite',
     ]
+
+# The Leap, Kurnell Coordinates for handler processor 
+THE_LEAP_LAT = -34.0049
+THE_LEAP_LON = 151.2288
