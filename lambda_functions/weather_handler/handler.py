@@ -130,29 +130,24 @@ def handler(event, context):
     except Exception as e:
         print(f"⚠️ S3 write error (non-fatal): {e}")
 
-    # 7. Trigger weather_analysis Lambda secara async (fire-and-forget)
+    # 7. Trigger weather_activity Lambda secara async (fire-and-forget)
     try:
-        analysis_payload = {
+        activity_payload = {
             "lat": lat,
             "lon": lon,
             "date_str": date_str,
             "location_name": location_name,
-            "sea_lat": sea_lat,
-            "sea_lon": sea_lon,
-            "start_idx": start_idx,
-            "marine": res_m.get("hourly", {}),
-            "weather": res_w.get("hourly", {}),
-            "tide": res_t,
             "cache_key": cache_key,
         }
+
         lambda_client.invoke(
-            FunctionName=ANALYSIS_FUNCTION_NAME,
+            FunctionName=ACTIVITY_FUNCTION_NAME,
             InvocationType="Event",     # fire-and-forget
-            Payload=json.dumps(analysis_payload),
+            Payload=json.dumps(activity_payload),
         )
-        print(f"🚀 Triggered weather_analysis async for {location_name} {date_str}")
+        print(f"🚀 Triggered weather_activity async for {location_name} {date_str}")
     except Exception as e:
-        print(f"⚠️ Failed to trigger analysis (non-fatal): {e}")
+        print(f"⚠️ Failed to trigger activity (non-fatal): {e}")
 
     # 8. Return data cuaca ke frontend LANGSUNG tanpa tunggu Gemini
     return cors_response(200, payload, origin)
