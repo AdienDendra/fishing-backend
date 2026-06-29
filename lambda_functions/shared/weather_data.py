@@ -61,16 +61,15 @@ def get_astronomy_data(target_dt, lat, lon):
         return f"{fmt_time(center - 1)} - {fmt_time(center + 1)}"
 
     is_good_phase = phase < 0.1 or 0.4 < phase < 0.6 or phase > 0.9
-    major_emoji = "🐟🐟🔥 *ON FIRE!!:* " if is_good_phase else "🐟🐟 *Major:* "
+    major_emoji = "🐟🐟🔥" if is_good_phase else "🐟🐟"
 
     return {
         "sr": fmt_time(sr_base),
         "ss": fmt_time(ss_base),
-        "major": f"{major_emoji}{fmt_range(major_2_center)} & {fmt_range(major_1_center)}",
-        "minor": f"🐟 *Minor:* {fmt_range(minor_2_center)} & {fmt_range(minor_1_center)}",
-        "low": "💤 *Low:* outside the Major and Minor periods",
+        "major": f"{major_emoji} {fmt_range(major_2_center)} & {fmt_range(major_1_center)}",
+        "minor": f"🐟 {fmt_range(minor_2_center)} & {fmt_range(minor_1_center)}",
+        "low": "💤 Outside the Major and Minor periods",
     }
-
 
 def find_nearest_sea_cell_data(lat, lon):
     # Pola Radar: Cek titik asli dulu, baru melingkar menjauh kalau gagal
