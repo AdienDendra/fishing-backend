@@ -1,4 +1,3 @@
-# Shared files — synced via sync_shared.sh, source of truth in shared/
 ai_analysis.py
 config.py
 weather_data.py

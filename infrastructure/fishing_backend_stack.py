@@ -96,6 +96,35 @@ class FishingBackendStack(Stack):
         
         weather_cache_bucket.grant_put(weather_analysis_fn, "weather-cache/*")
         weather_cache_bucket.grant_read(weather_analysis_fn, "weather-cache/*")
+        
+        # ── weather_activity (Lambda triggered for forecast fish activity) ────────
+
+        weather_activity_fn = _lambda.Function(
+            self,
+            "WeatherActivityFunction",
+            function_name="weather-activity",
+            runtime=_lambda.Runtime.PYTHON_3_12,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset(
+                "../lambda_functions/weather_activity",
+            ),
+            timeout=Duration.seconds(60),
+            environment={
+                "BUCKET_NAME": weather_cache_bucket.bucket_name,
+                "ANALYSIS_FUNCTION_NAME": weather_analysis_fn.function_name,
+            },
+        )
+        weather_cache_bucket.grant_read(weather_activity_fn, "weather-cache/*")
+        weather_cache_bucket.grant_put(weather_activity_fn, "weather-cache/*")
+
+        weather_activity_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[weather_analysis_fn.function_arn],
+            )
+        )
+
+        
 
         # ── weather_handler (API Gateway triggered, cache-aside) ─────────────────
         weather_handler_fn = _lambda.Function(
@@ -110,7 +139,7 @@ class FishingBackendStack(Stack):
             timeout=Duration.seconds(30),   # Cukup — Gemini ada di weather_analysis
             environment={
                 "BUCKET_NAME": weather_cache_bucket.bucket_name,
-                "ANALYSIS_FUNCTION_NAME": weather_analysis_fn.function_name,
+                "ACTIVITY_FUNCTION_NAME": weather_activity_fn.function_name,
             },
         )
         weather_cache_bucket.grant_read(weather_handler_fn, "weather-cache/*")
@@ -118,7 +147,7 @@ class FishingBackendStack(Stack):
         weather_handler_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["lambda:InvokeFunction"],
-                resources=[weather_analysis_fn.function_arn],
+                resources=[weather_activity_fn.function_arn],
             )
         )
 

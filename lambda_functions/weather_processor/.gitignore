@@ -1,6 +1,9 @@
 ai_analysis.py
 config.py
 weather_data.py
+astronomy.py
+cache_keys.py
+fishing_activity.py
 __pycache__/
 *.dist-info/
 *.egg-info/

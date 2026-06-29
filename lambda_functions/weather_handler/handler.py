@@ -4,12 +4,13 @@ from datetime import datetime, timezone
 
 import boto3
 
-from weather_data import get_weather_data, get_astronomy_data
+from weather_data import get_weather_data
 
 s3 = boto3.client("s3")
 lambda_client = boto3.client("lambda")
 BUCKET_NAME = os.environ["BUCKET_NAME"]
-ANALYSIS_FUNCTION_NAME = os.environ["ANALYSIS_FUNCTION_NAME"]
+ACTIVITY_FUNCTION_NAME = os.environ["ACTIVITY_FUNCTION_NAME"]
+
 
 # Whitelist origin yang diizinkan — production + localhost untuk development
 ALLOWED_ORIGINS = [
@@ -91,14 +92,6 @@ def handler(event, context):
     if start_idx == -1:
         return cors_response(404, {"error": f"No data available for date: {date_str}"}, origin)
 
-    # 4. Hitung astronomy data untuk tanggal yang diminta
-    try:
-        target_dt = datetime.strptime(date_str, "%Y-%m-%d")
-        astro = get_astronomy_data(target_dt, lat, lon)
-    except Exception as e:
-        astro = {}
-        print(f"⚠️ Astronomy calculation error: {e}")
-
     # 5. Susun payload "partial" — data cuaca lengkap, analysis belum ada
     payload = {
         "status": "partial",
@@ -118,9 +111,11 @@ def handler(event, context):
             for k, v in res_w.get("hourly", {}).items()
         },
         "tide": (res_t or [])[start_idx:start_idx + 24],
-        **astro,
         "analysis": None,
         "model_used": None,
+        "activity_schema_version": "1.0",
+        "astronomy": None,
+        "fish_activity": None,
     }
 
     # 6. Tulis cache "partial" ke S3
