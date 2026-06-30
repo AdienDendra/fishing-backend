@@ -5,3 +5,4 @@ astronomy.py
 cache_keys.py
 fishing_activity.py
 weather_cache_pipeline.py
+__pycache__/
