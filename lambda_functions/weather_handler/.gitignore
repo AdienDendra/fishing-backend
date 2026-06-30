@@ -5,6 +5,7 @@ weather_data.py
 astronomy.py
 cache_keys.py
 fishing_activity.py
+weather_cache_pipeline.py
 81d243bd2c585b0f4821__mypyc.cpython-312-x86_64-linux-gnu.so
 bin
 certifi
