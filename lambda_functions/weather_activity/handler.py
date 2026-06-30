@@ -6,6 +6,7 @@ import boto3
 
 from astronomy import get_astronomy_data
 from fishing_activity import build_fish_activity
+from astronomy import get_astronomy_data
 
 s3 = boto3.client("s3")
 lambda_client = boto3.client("lambda")

@@ -134,7 +134,7 @@ def get_weather_data(lat, lon):
         # 2. Ambil Cuaca Daratan (Lokasi asli user)
         url_w = (
             f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
-            f"&hourly=wind_speed_10m,wind_direction_10m,temperature_2m,apparent_temperature,precipitation,precipitation_probability,pressure_msl"
+            f"&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,apparent_temperature,precipitation,precipitation_probability,pressure_msl"
             f"&timezone=auto&forecast_days=7"
         )
         res_w = requests.get(url_w, timeout=5).json()
