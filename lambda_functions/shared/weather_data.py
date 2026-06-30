@@ -107,7 +107,6 @@ def find_nearest_sea_cell_data(lat, lon):
     return lat, lon
 
 
-def get_tide_data(lat, lon):
     """
     A specific function to fetch tidal data from Open-Meteo.
     This data is based on a harmonic model (mathematical prediction).
@@ -120,7 +119,6 @@ def get_tide_data(lat, lon):
     except Exception as e:
         print(f"⚠️ Error Tide Fetch: {e}")
     return None
-
 
 def get_weather_data(lat, lon):
     # Langkah 1: Cari koordinat laut terdekat (Spiral Search)
@@ -142,15 +140,130 @@ def get_weather_data(lat, lon):
         # 3. Ambil Data Marine (Wave, Swell, Period) di sea_lat/lon
         url_m = (
             f"https://marine-api.open-meteo.com/v1/marine?latitude={sea_lat}&longitude={sea_lon}"
-            f"&hourly=wave_height,swell_wave_height,swell_wave_period,wave_period&timezone=auto"
+            f"&hourly=wave_height,swell_wave_height,swell_wave_period,wave_period,sea_level_height_msl"
+            f"&timezone=auto&forecast_days=7"
         )
         res_m = requests.get(url_m, timeout=5).json()
 
-        # 4. Ambil Data Tide (Panggil fungsi terpisah)
-        res_t = get_tide_data(sea_lat, sea_lon)
+        # 4. Build estimated tide data from Open-Meteo sea level model
+        res_t = build_estimated_tide_data(res_m)
 
     except Exception as e:
         print(f"🔥 Error Fetching Data: {e}")
 
     # Return ditambah res_t
     return res_m, res_w, res_t, sea_lat, sea_lon
+
+def detect_estimated_tide_extremes(heights):
+    """
+    Detect simple local high/low tide points from hourly sea level estimates.
+
+    This is not an official tide-table algorithm. It is only used to provide
+    fishing guidance such as rising/falling tide and approximate high/low windows.
+    """
+    extremes = []
+
+    if len(heights) < 3:
+        return extremes
+
+    for index in range(1, len(heights) - 1):
+        previous_height = heights[index - 1]["height"]
+        current_height = heights[index]["height"]
+        next_height = heights[index + 1]["height"]
+
+        if previous_height is None or current_height is None or next_height is None:
+            continue
+
+        if current_height >= previous_height and current_height > next_height:
+            extremes.append(
+                {
+                    "time": heights[index]["time"],
+                    "height": current_height,
+                    "type": "High",
+                }
+            )
+
+        elif current_height <= previous_height and current_height < next_height:
+            extremes.append(
+                {
+                    "time": heights[index]["time"],
+                    "height": current_height,
+                    "type": "Low",
+                }
+            )
+
+    return extremes
+
+
+def build_estimated_tide_data(res_m):
+    """
+    Build estimated tide data from Open-Meteo sea_level_height_msl.
+
+    Important:
+    - This is not an official tide table.
+    - It is useful for fishing guidance and tide trend estimation.
+    - It must not be used for navigation.
+    """
+    hourly = res_m.get("hourly", {})
+    hourly_units = res_m.get("hourly_units", {})
+
+    times = hourly.get("time", [])
+    sea_levels = hourly.get("sea_level_height_msl", [])
+
+    heights = []
+
+    for timestamp, height in zip(times, sea_levels):
+        heights.append(
+            {
+                "time": timestamp,
+                "height": height,
+            }
+        )
+
+    return {
+        "source": "open-meteo",
+        "type": "estimated_sea_level_height_msl",
+        "unit": hourly_units.get("sea_level_height_msl", "m"),
+        "accuracy_note": (
+            "Estimated sea level trend from Open-Meteo marine model. "
+            "Useful for fishing guidance, not an official tide table, "
+            "and not suitable for navigation."
+        ),
+        "heights": heights,
+        "extremes": detect_estimated_tide_extremes(heights),
+    }
+
+
+def filter_tide_for_date(tide_data, date_str):
+    """
+    Extract estimated tide data for one local calendar date.
+    """
+    if not tide_data:
+        return {
+            "source": "open-meteo",
+            "type": "estimated_sea_level_height_msl",
+            "status": "unavailable",
+            "heights": [],
+            "extremes": [],
+        }
+
+    heights = [
+        item
+        for item in tide_data.get("heights", [])
+        if (item.get("time") or "").startswith(date_str)
+    ]
+
+    extremes = [
+        item
+        for item in tide_data.get("extremes", [])
+        if (item.get("time") or "").startswith(date_str)
+    ]
+
+    return {
+        "source": tide_data.get("source", "open-meteo"),
+        "type": tide_data.get("type", "estimated_sea_level_height_msl"),
+        "unit": tide_data.get("unit", "m"),
+        "accuracy_note": tide_data.get("accuracy_note"),
+        "heights": heights,
+        "extremes": extremes,
+    }
