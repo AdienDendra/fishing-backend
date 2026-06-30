@@ -1,114 +1,77 @@
-import json
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-import boto3
-from google import genai
-
-from weather_data import get_weather_data, get_astronomy_data
-from ai_analysis import generate_weather_analysis
 from config import THE_LEAP_LAT, THE_LEAP_LON
+from weather_cache_pipeline import WeatherCachePipeline
 
-s3 = boto3.client("s3")
-ssm = boto3.client("ssm")
 BUCKET_NAME = os.environ["BUCKET_NAME"]
+ACTIVITY_FUNCTION_NAME = os.environ["ACTIVITY_FUNCTION_NAME"]
+
+SYDNEY_TZ = ZoneInfo("Australia/Sydney")
+
+pipeline = WeatherCachePipeline(
+    bucket_name=BUCKET_NAME,
+    activity_function_name=ACTIVITY_FUNCTION_NAME,
+)
 
 
-_gemini_client = None
-
-
-def get_gemini_client():
-    global _gemini_client
-    if _gemini_client is None:
-        api_key = ssm.get_parameter(
-            Name="/fishing-backend/gemini-api-key", WithDecryption=True
-        )["Parameter"]["Value"]
-        _gemini_client = genai.Client(api_key=api_key)
-    return _gemini_client
-
-
-def make_cache_key(lat: float, lon: float, date_str: str) -> str:
-    # Per-date cache key — satu file per hari per lokasi
-    # Contoh: weather-cache/-33.9929_151.2172/2026-06-19.json
-    return f"weather-cache/{round(lat, 4)}_{round(lon, 4)}/{date_str}.json"
-
-
-def get_day_start_index(all_times, target_date_str):
-    # Cari index jam pertama untuk tanggal tertentu dari array time Open-Meteo
-    return next((i for i, t in enumerate(all_times) if t.startswith(target_date_str)), -1)
-
-
-def format_data_points(res_m, res_w, res_t, start_idx, hours=24):
-    hm = res_m.get("hourly", {})
-    hw = res_w.get("hourly", {})
-    end_idx = start_idx + hours
-    return (
-        f"Wave height (m): {hm.get('wave_height', [])[start_idx:end_idx]}\n"
-        f"Wave period (s): {hm.get('wave_period', [])[start_idx:end_idx]}\n"
-        f"Swell height (m): {hm.get('swell_wave_height', [])[start_idx:end_idx]}\n"
-        f"Swell period (s): {hm.get('swell_wave_period', [])[start_idx:end_idx]}\n"
-        f"Wind speed (km/h): {hw.get('wind_speed_10m', [])[start_idx:end_idx]}\n"
-        f"Wind direction: {hw.get('wind_direction_10m', [])[start_idx:end_idx]}\n"
-        f"Temperature (C): {hw.get('temperature_2m', [])[start_idx:end_idx]}\n"
-        f"Apparent temperature (C): {hw.get('apparent_temperature', [])[start_idx:end_idx]}\n"
-        f"Pressure (hPa): {hw.get('pressure_msl', [])[start_idx:end_idx]}\n"
-        f"Tide height (m): {(res_t or [])[start_idx:end_idx]}"
-    )
+PREWARM_LOCATIONS = [
+    {
+        "name": "The Leap, Kurnell",
+        "state": "NSW",
+        "lat": THE_LEAP_LAT,
+        "lon": THE_LEAP_LON,
+    },
+]
 
 
 def handler(event, context):
-    # Fetch semua data sekaligus — satu call ke Open-Meteo dapat 7 hari
-    res_m, res_w, res_t, sea_lat, sea_lon = get_weather_data(THE_LEAP_LAT, THE_LEAP_LON)
-    client = get_gemini_client()
+    """
+    Scheduled pre-warm entrypoint.
 
-    all_times = res_w.get("hourly", {}).get("time", [])
-    today = datetime.utcnow() + timedelta(hours=10)  # aproksimasi AEST, belum handle AEDT
+    Triggered by EventBridge cron. It prepares cache files for selected
+    public website locations using the same partial cache contract as
+    weather_handler.
 
-    # Loop 7 hari — tulis satu file JSON per hari ke S3
-    for day_offset in range(7):
-        target_dt = today + timedelta(days=day_offset)
-        date_str = target_dt.strftime("%Y-%m-%d")
+    Difference from weather_handler:
+    - weather_handler handles one user-requested lat/lon/date
+    - weather_processor pre-warms configured locations for multiple days
+    """
+    today = datetime.now(SYDNEY_TZ).date()
 
-        start_idx = get_day_start_index(all_times, date_str)
-        if start_idx == -1:
-            # Data untuk tanggal ini belum tersedia di response Open-Meteo, skip
-            print(f"⚠️ No data found for {date_str}, skipping.")
+    for location in PREWARM_LOCATIONS:
+        location_name = location["name"]
+        lat = round(location["lat"], 4)
+        lon = round(location["lon"], 4)
+
+        print(f"🌊 Pre-warming cache for {location_name}")
+
+        try:
+            # One Open-Meteo response contains multiple forecast days.
+            weather_bundle = pipeline.fetch_weather_bundle(lat, lon)
+
+        except Exception as exc:
+            print(f"❌ Failed to fetch weather data for {location_name}: {exc}")
             continue
 
-        astro = get_astronomy_data(target_dt, THE_LEAP_LAT, THE_LEAP_LON)
-        data_points = format_data_points(res_m, res_w, res_t, start_idx)
-        ai_text, model_used = generate_weather_analysis(client, "The Leap, Kurnell", date_str, data_points)
+        for day_offset in range(7):
+            date_str = (today + timedelta(days=day_offset)).strftime("%Y-%m-%d")
 
-        # Payload per hari — hanya data 24 jam untuk tanggal ini
-        payload = {
-            "name": "The Leap, Kurnell",
-            "state": "NSW",
-            "lat": THE_LEAP_LAT,
-            "lon": THE_LEAP_LON,
-            "sea_lat": sea_lat,
-            "sea_lon": sea_lon,
-            "date": date_str,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "marine": {
-                k: v[start_idx:start_idx + 24]
-                for k, v in res_m.get("hourly", {}).items()
-            },
-            "weather": {
-                k: v[start_idx:start_idx + 24]
-                for k, v in res_w.get("hourly", {}).items()
-            },
-            "tide": (res_t or [])[start_idx:start_idx + 24],
-            **astro,
-            "analysis": ai_text,
-            "model_used": model_used,
-        }
+            try:
+                pipeline.build_and_write_partial_cache(
+                    location_name=location_name,
+                    state=location.get("state"),
+                    lat=lat,
+                    lon=lon,
+                    date_str=date_str,
+                    weather_bundle=weather_bundle,
+                )
 
-        s3.put_object(
-            Bucket=BUCKET_NAME,
-            Key=make_cache_key(THE_LEAP_LAT, THE_LEAP_LON, date_str),
-            Body=json.dumps(payload),
-            ContentType="application/json",
-        )
-        print(f"✅ Cache written: {date_str}")
+            except ValueError as exc:
+                print(f"⚠️ {location_name} {date_str}: {exc}")
+
+            except Exception as exc:
+                print(f"❌ Failed to pre-warm {location_name} {date_str}: {exc}")
 
     return {"statusCode": 200}

@@ -124,8 +124,19 @@ class FishingBackendStack(Stack):
             )
         )
 
-        
+        # Allow weather_processor to trigger weather_activity for scheduled pre-warm
+        weather_processor_fn.add_environment(
+            "ACTIVITY_FUNCTION_NAME",
+            weather_activity_fn.function_name,
+        )
 
+        weather_processor_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[weather_activity_fn.function_arn],
+            )
+        )
+        
         # ── weather_handler (API Gateway triggered, cache-aside) ─────────────────
         weather_handler_fn = _lambda.Function(
             self,
