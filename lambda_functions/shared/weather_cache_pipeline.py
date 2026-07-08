@@ -4,8 +4,11 @@ from datetime import datetime, timezone
 import boto3
 
 from cache_keys import make_cache_key
-from weather_data import get_weather_data, filter_tide_for_date
-
+from weather_data import (
+    get_weather_data,
+    filter_daily_for_date,
+    filter_tide_for_date,
+)
 
 class WeatherCachePipeline:
     """
@@ -90,6 +93,7 @@ class WeatherCachePipeline:
                 key: value[start_idx:start_idx + 24]
                 for key, value in res_w.get("hourly", {}).items()
             },
+            "daily": filter_daily_for_date(res_w, date_str),
             "tide": filter_tide_for_date(res_t, date_str),
             "analysis": None,
             "model_used": None,

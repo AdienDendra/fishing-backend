@@ -6,7 +6,6 @@ import boto3
 
 from astronomy import get_astronomy_data
 from fishing_activity import build_fish_activity
-from astronomy import get_astronomy_data
 
 s3 = boto3.client("s3")
 lambda_client = boto3.client("lambda")
@@ -39,6 +38,7 @@ def handler(event, context):
             lat=lat,
             lon=lon,
             timezone_name="Australia/Sydney",
+            daily=cached.get("daily") or {},
         )
 
         fish_activity = build_fish_activity(
@@ -56,7 +56,14 @@ def handler(event, context):
     cached["activity_schema_version"] = "1.0"
     cached["astronomy"] = astronomy
     cached["fish_activity"] = fish_activity
+    # Backward-compatible aliases for current frontend weather-fetch.js.
+    cached["sr"] = astronomy.get("sunrise")
+    cached["ss"] = astronomy.get("sunset")
+    cached["major"] = fish_activity.get("major")
+    cached["minor"] = fish_activity.get("minor")
+    cached["low"] = fish_activity.get("low")
     cached["activity_calculated_at"] = datetime.now(timezone.utc).isoformat()
+
 
     try:
         s3.put_object(

@@ -257,6 +257,36 @@ def filter_tide_for_date(tide_data, date_str):
         "warnings": tide_data.get("warnings", []),
     }
 
+def filter_daily_for_date(weather_data, date_str):
+    """
+    Extract one daily weather block from Open-Meteo daily forecast.
+
+    Used by weather_activity to calculate sunrise/sunset and fishing windows.
+    """
+    daily = weather_data.get("daily", {})
+    dates = daily.get("time", [])
+
+    try:
+        index = dates.index(date_str)
+    except ValueError:
+        return {
+            "status": "unavailable",
+            "date": date_str,
+            "sunrise": None,
+            "sunset": None,
+            "daylight_duration": None,
+            "timezone": weather_data.get("timezone"),
+        }
+
+    return {
+        "status": "available",
+        "date": date_str,
+        "sunrise": daily.get("sunrise", [None])[index],
+        "sunset": daily.get("sunset", [None])[index],
+        "daylight_duration": daily.get("daylight_duration", [None])[index],
+        "timezone": weather_data.get("timezone"),
+    }
+
 def get_astronomy_data(target_dt, lat, lon):
     # 1. Base Time & Moon Phase (Global)
     dt_utc = target_dt.replace(hour=12, minute=0) - timedelta(hours=10)
@@ -369,6 +399,7 @@ def get_weather_data(lat, lon):
         url_w = (
             f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
             f"&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,temperature_2m,apparent_temperature,precipitation,precipitation_probability,pressure_msl"
+            f"&daily=sunrise,sunset,daylight_duration"
             f"&timezone=auto&forecast_days=7"
         )
         res_w = requests.get(url_w, timeout=5).json()
