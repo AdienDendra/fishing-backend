@@ -6,3 +6,15 @@ cache_keys.py
 fishing_activity.py
 weather_cache_pipeline.py
 __pycache__/
+bin
+certifi
+certifi-2026.6.17.dist-info
+jplephem
+jplephem-2.24.dist-info
+numpy
+numpy-2.5.1.dist-info
+numpy.libs
+sgp4
+sgp4-2.27.dist-info
+skyfield
+skyfield-1.54.dist-info
