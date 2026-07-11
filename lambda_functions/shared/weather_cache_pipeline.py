@@ -132,7 +132,7 @@ class WeatherCachePipeline:
             "analysis": None,
             "model_used": None,
 
-            "activity_schema_version": "1.0",
+            "activity_schema_version": "2.1",
             "astronomy": None,
             "fish_activity": None,
         }

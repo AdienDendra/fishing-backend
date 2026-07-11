@@ -50,10 +50,15 @@ def extract_tide_values(tide: dict | list) -> list:
 
     return values
 
-
 def format_data_points(cached: dict) -> str:
     """
-    Format the canonical 24-hour cache payload for Gemini.
+    Format the canonical daily cache payload for Gemini.
+
+    Hourly arrays contain one local Sydney calendar day:
+    index 0 = 00:00
+    index 1 = 01:00
+    ...
+    index 23 = 23:00
     """
     marine = cached.get("marine") or {}
     weather = cached.get("weather") or {}
@@ -63,25 +68,78 @@ def format_data_points(cached: dict) -> str:
     fish_activity = cached.get("fish_activity") or {}
 
     return (
-        f"Wave height (m): {marine.get('wave_height', [])}\n"
-        f"Wave period (s): {marine.get('wave_period', [])}\n"
-        f"Swell height (m): {marine.get('swell_wave_height', [])}\n"
-        f"Swell period (s): {marine.get('swell_wave_period', [])}\n"
-        f"Wind speed (km/h): {weather.get('wind_speed_10m', [])}\n"
-        f"Wind direction: {weather.get('wind_direction_10m', [])}\n"
-        f"Temperature (C): {weather.get('temperature_2m', [])}\n"
+        f"Wave height (m): "
+        f"{marine.get('wave_height', [])}\n"
+
+        f"Wave period (s): "
+        f"{marine.get('wave_period', [])}\n"
+
+        f"Swell height (m): "
+        f"{marine.get('swell_wave_height', [])}\n"
+
+        f"Swell period (s): "
+        f"{marine.get('swell_wave_period', [])}\n"
+
+        f"Wind speed (km/h): "
+        f"{weather.get('wind_speed_10m', [])}\n"
+
+        f"Wind gusts (km/h): "
+        f"{weather.get('wind_gusts_10m', [])}\n"
+
+        f"Wind direction (degrees): "
+        f"{weather.get('wind_direction_10m', [])}\n"
+
+        f"Temperature (C): "
+        f"{weather.get('temperature_2m', [])}\n"
+
         f"Apparent temperature (C): "
         f"{weather.get('apparent_temperature', [])}\n"
-        f"Pressure (hPa): {weather.get('pressure_msl', [])}\n"
-        f"Tide height (m): {extract_tide_values(tide)}\n"
-        f"Sunrise: {astronomy.get('sunrise')}\n"
-        f"Sunset: {astronomy.get('sunset')}\n"
-        f"Major periods: {astronomy.get('major_periods', [])}\n"
-        f"Minor periods: {astronomy.get('minor_periods', [])}\n"
-        f"Strike score: {fish_activity.get('score')}\n"
-        f"Strike label: {fish_activity.get('label')}"
-    )
 
+        f"Pressure (hPa): "
+        f"{weather.get('pressure_msl', [])}\n"
+
+        f"Tide height (m): "
+        f"{extract_tide_values(tide)}\n"
+
+        f"Sunrise: "
+        f"{astronomy.get('sunrise')}\n"
+
+        f"Sunset: "
+        f"{astronomy.get('sunset')}\n"
+
+        f"Moon phase: "
+        f"{astronomy.get('moon_phase')}\n"
+
+        f"Moon illumination: "
+        f"{astronomy.get('moon_illumination')}%\n"
+
+        f"Major periods: "
+        f"{astronomy.get('major_periods', [])}\n"
+
+        f"Minor periods: "
+        f"{astronomy.get('minor_periods', [])}\n"
+
+        f"Strike score: "
+        f"{fish_activity.get('score')}\n"
+
+        f"Strike label: "
+        f"{fish_activity.get('label')}\n"
+
+        f"Best fishing window: "
+        f"{fish_activity.get('best_window')}\n"
+
+        f"Best window type: "
+        f"{fish_activity.get('best_window_type')}\n"
+
+        f"Score breakdown: "
+        f"{fish_activity.get('score_basis', {})}\n"
+
+        f"Conditions at best window: "
+        f"{fish_activity.get('conditions_at_best_window', {})}\n"
+
+        f"Backend reasons: "
+        f"{fish_activity.get('reasons', [])}"
+    )
 
 def handler(event, context):
     try:

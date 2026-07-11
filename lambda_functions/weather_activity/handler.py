@@ -56,7 +56,7 @@ def handler(event, context):
     cached["activity_status"] = "ready"
     cached["analysis_status"] = cached.get("analysis_status") or "pending"
 
-    cached["activity_schema_version"] = "1.0"
+    cached["activity_schema_version"] = "2.1"
     cached["astronomy"] = astronomy
     cached["fish_activity"] = fish_activity
 
