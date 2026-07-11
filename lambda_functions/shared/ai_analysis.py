@@ -3,107 +3,145 @@ import os
 from google import genai
 from google.genai import types
 
-# Adjusted to match the translated config variables
-from config import MODEL_LIST, WEATHER_AI_INSTRUCTIONS, SPECIES_AI_INSTRUCTIONS
-
-res = client.models.generate_content(
-    model=md,
-    contents=prompt_text,
-    config=types.GenerateContentConfig(
-        system_instruction=WEATHER_AI_INSTRUCTIONS,
-        temperature=0.2,
-        max_output_tokens=300,
-    ),
+from config import (
+    MODEL_LIST,
+    SPECIES_AI_INSTRUCTIONS,
+    WEATHER_AI_INSTRUCTIONS,
 )
 
-def generate_weather_analysis(client, location, date_str, data_points):
-    """
-    Function using the latest model list, including 2.0 and 2.5
-    """
-    # Model list: fetched from config.py (MODEL_LIST)
-    model_list = MODEL_LIST
-    
-    ai_response = "⚠️ *AI Analysis is currently busy, mate.*"
-    model_used = "None"
+# The prompt limits the response to 250 words.
+# This value is measured in tokens, not words, so extra headroom is required
+# for Markdown headings and punctuation.
+WEATHER_MAX_OUTPUT_TOKENS = 500
 
-    # Define the prompt OUTSIDE the try loop for safety
+
+def generate_weather_analysis(
+    client,
+    location: str,
+    date_str: str,
+    data_points: str,
+) -> tuple[str, str]:
+    """
+    Generate a concise fishing conditions explanation.
+
+    The deterministic backend remains the source of truth for:
+    - Strike Chance
+    - Major and Minor periods
+    - sunrise and sunset
+    - tide timing
+
+    Gemini only converts those results into an angler-facing narrative.
+    """
     prompt_text = (
-        f"Instructions: {WEATHER_AI_INSTRUCTIONS}\n"
         f"LOCATION: {location}\n"
         f"DATE: {date_str}\n"
-        f"WEATHER DATA:\n{data_points}"
+        "TIMEZONE: Australia/Sydney\n"
+        "HOURLY ARRAY MAPPING: index 0 represents 00:00 local time, "
+        "index 1 represents 01:00, and index 23 represents 23:00.\n"
+        f"SUPPLIED DATA:\n{data_points}"
     )
 
-    print(f"\n🧠 Starting AI Analysis for {location}...")
+    last_error: Exception | None = None
 
-    for md in model_list:
-        try:
-            print(f"📡 Trying model: {md}...") 
-            
-            # Call Gemini - We try without the 'models/' prefix first
-            # If it returns a 404, we will automatically add the prefix
-            res = client.models.generate_content(
-                model=md, 
-                contents=prompt_text
-            )
-            
-            if res and res.text:
-                ai_response = res.text
-                model_used = md
-                print(f"✅ Successfully used: {md}")
-                break 
-                
-        except Exception as e:
-            # If it fails due to a 404, automatically retry using the models/ prefix
-            if "not found" in str(e).lower():
-                try:
-                    print(f"🔄 Retrying {md} with 'models/' prefix...")
-                    res = client.models.generate_content(
-                        model=f"models/{md}", 
-                        contents=prompt_text
-                    )
-                    if res and res.text:
-                        ai_response = res.text
-                        model_used = md
-                        print(f"✅ Successfully used: models/{md}")
-                        break
-                except:
-                    pass
-            
-            print(f"❌ {md} Failed: {str(e)[:100]}")
-            continue
+    print(f"🧠 Starting AI analysis for {location}...")
 
-    return ai_response, model_used
-
-
-def generate_species_analysis(image_path, mime_type='image/jpeg'):
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-
-    last_error = ""
-    
-    # Loop through and try each model in the list
     for model_name in MODEL_LIST:
         try:
-            print(f"🔄 Trying identification with: {model_name}...")
-            
-            with open(image_path, "rb") as f:
-                image_bytes = f.read()
+            print(f"📡 Trying model: {model_name}...")
 
-            res = client.models.generate_content(
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt_text,
+                config=types.GenerateContentConfig(
+                    system_instruction=WEATHER_AI_INSTRUCTIONS,
+                    temperature=0.2,
+                    max_output_tokens=WEATHER_MAX_OUTPUT_TOKENS,
+                ),
+            )
+
+            response_text = (response.text or "").strip()
+
+            if not response_text:
+                raise RuntimeError(
+                    f"{model_name} returned an empty response."
+                )
+
+            print(f"✅ Successfully used: {model_name}")
+
+            return response_text, model_name
+
+        except Exception as exc:
+            last_error = exc
+            print(
+                f"❌ {model_name} failed: "
+                f"{type(exc).__name__}: {str(exc)[:200]}"
+            )
+
+    if last_error is None:
+        raise RuntimeError("MODEL_LIST is empty.")
+
+    raise RuntimeError(
+        f"All configured Gemini models failed. "
+        f"Last error: {type(last_error).__name__}: {last_error}"
+    ) from last_error
+
+
+def generate_species_analysis(
+    image_path: str,
+    mime_type: str = "image/jpeg",
+) -> str:
+    """
+    Identify a fish or marine creature from an uploaded image.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if not api_key:
+        return "❌ GEMINI_API_KEY is not configured."
+
+    client = genai.Client(api_key=api_key)
+    last_error: Exception | None = None
+
+    for model_name in MODEL_LIST:
+        try:
+            print(
+                f"🔄 Trying species identification with: "
+                f"{model_name}..."
+            )
+
+            with open(image_path, "rb") as image_file:
+                image_bytes = image_file.read()
+
+            response = client.models.generate_content(
                 model=model_name,
                 contents=[
                     SPECIES_AI_INSTRUCTIONS,
-                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-                ]
+                    types.Part.from_bytes(
+                        data=image_bytes,
+                        mime_type=mime_type,
+                    ),
+                ],
             )
-            
-            # If successful, return the result immediately and stop the loop
-            return f"{res.text}\n\n_(Analysis by: {model_name})_"
 
-        except Exception as e:
-            print(f"⚠️ Model {model_name} failed: {str(e)}")
-            last_error = str(e)
-            continue # Proceed to the next model in the list
+            response_text = (response.text or "").strip()
 
-    # If all models in the list fail
-    return f"❌ All expert models are currently down, mate. Last error: {last_error}"
+            if not response_text:
+                raise RuntimeError(
+                    f"{model_name} returned an empty response."
+                )
+
+            return (
+                f"{response_text}\n\n"
+                f"_(Analysis by: {model_name})_"
+            )
+
+        except Exception as exc:
+            last_error = exc
+            print(
+                f"⚠️ Model {model_name} failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    return (
+        "❌ All expert models are currently unavailable. "
+        f"Last error: {last_error}"
+    )
