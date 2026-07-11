@@ -24,67 +24,128 @@ def get_gemini_client():
     return _gemini_client
 
 
-def format_data_points(res_m, res_w, res_t, start_idx=0, hours=24):
-    hm = res_m.get("hourly", {})
-    hw = res_w.get("hourly", {})
-    end_idx = start_idx + hours
+def extract_tide_values(tide: dict | list) -> list:
+    """
+    Extract angler-facing tide heights from the cached tide structure.
+    """
+    if isinstance(tide, list):
+        return tide
+
+    if not isinstance(tide, dict):
+        return []
+
+    values = []
+
+    for item in tide.get("heights") or []:
+        if not isinstance(item, dict):
+            continue
+
+        value = (
+            item.get("display_height")
+            if item.get("display_height") is not None
+            else item.get("height_msl")
+        )
+
+        values.append(value)
+
+    return values
+
+
+def format_data_points(cached: dict) -> str:
+    """
+    Format the canonical 24-hour cache payload for Gemini.
+    """
+    marine = cached.get("marine") or {}
+    weather = cached.get("weather") or {}
+    tide = cached.get("tide") or {}
+
+    astronomy = cached.get("astronomy") or {}
+    fish_activity = cached.get("fish_activity") or {}
+
     return (
-        f"Wave height (m): {hm.get('wave_height', [])[start_idx:end_idx]}\n"
-        f"Wave period (s): {hm.get('wave_period', [])[start_idx:end_idx]}\n"
-        f"Swell height (m): {hm.get('swell_wave_height', [])[start_idx:end_idx]}\n"
-        f"Swell period (s): {hm.get('swell_wave_period', [])[start_idx:end_idx]}\n"
-        f"Wind speed (km/h): {hw.get('wind_speed_10m', [])[start_idx:end_idx]}\n"
-        f"Wind direction: {hw.get('wind_direction_10m', [])[start_idx:end_idx]}\n"
-        f"Temperature (C): {hw.get('temperature_2m', [])[start_idx:end_idx]}\n"
-        f"Apparent temperature (C): {hw.get('apparent_temperature', [])[start_idx:end_idx]}\n"
-        f"Pressure (hPa): {hw.get('pressure_msl', [])[start_idx:end_idx]}\n"
-        f"Tide height (m): {(res_t or [])[start_idx:end_idx]}"
+        f"Wave height (m): {marine.get('wave_height', [])}\n"
+        f"Wave period (s): {marine.get('wave_period', [])}\n"
+        f"Swell height (m): {marine.get('swell_wave_height', [])}\n"
+        f"Swell period (s): {marine.get('swell_wave_period', [])}\n"
+        f"Wind speed (km/h): {weather.get('wind_speed_10m', [])}\n"
+        f"Wind direction: {weather.get('wind_direction_10m', [])}\n"
+        f"Temperature (C): {weather.get('temperature_2m', [])}\n"
+        f"Apparent temperature (C): "
+        f"{weather.get('apparent_temperature', [])}\n"
+        f"Pressure (hPa): {weather.get('pressure_msl', [])}\n"
+        f"Tide height (m): {extract_tide_values(tide)}\n"
+        f"Sunrise: {astronomy.get('sunrise')}\n"
+        f"Sunset: {astronomy.get('sunset')}\n"
+        f"Major periods: {astronomy.get('major_periods', [])}\n"
+        f"Minor periods: {astronomy.get('minor_periods', [])}\n"
+        f"Strike score: {fish_activity.get('score')}\n"
+        f"Strike label: {fish_activity.get('label')}"
     )
 
 
 def handler(event, context):
-    # event berisi payload dari weather_handler via lambda_client.invoke()
     try:
-        lat = event["lat"]
-        lon = event["lon"]
-        date_str = event["date_str"]
-        location_name = event["location_name"]
         cache_key = event["cache_key"]
-
-        # Data sudah di-slice 24 jam oleh weather_handler
-        marine = event["marine"]
-        weather = event["weather"]
-        tide = event["tide"]
-
-    except KeyError as e:
-        print(f"❌ Missing required field in event payload: {e}")
+        location_name = event["location_name"]
+        date_str = event["date_str"]
+    except KeyError as exc:
+        print(f"❌ Missing required event field: {exc}")
         return {"statusCode": 400}
 
-    # 1. Format data points untuk prompt Gemini
-    data_points = format_data_points(marine, weather, tide)
-
-    # 2. Panggil Gemini — ini yang memakan waktu 5-15 detik
-    client = get_gemini_client()
-    ai_text, model_used = generate_weather_analysis(
-        client, location_name, date_str, data_points
-    )
-    print(f"✅ Analysis done for {location_name} {date_str} using {model_used}")
-
-    # 3. Baca cache partial yang sudah ditulis weather_handler
+    # Read the activity-ready cache from S3.
     try:
-        obj = s3.get_object(Bucket=BUCKET_NAME, Key=cache_key)
+        obj = s3.get_object(
+            Bucket=BUCKET_NAME,
+            Key=cache_key,
+        )
         cached = json.loads(obj["Body"].read())
-    except Exception as e:
-        print(f"❌ Failed to read partial cache: {e}")
+    except Exception as exc:
+        print(f"❌ Failed to read activity cache: {exc}")
         return {"statusCode": 500}
 
-    # 4. Update cache dari "partial" → "complete"
+    data_points = format_data_points(cached)
+
+    try:
+        client = get_gemini_client()
+
+        ai_text, model_used = generate_weather_analysis(
+            client,
+            location_name,
+            date_str,
+            data_points,
+        )
+
+        print(
+            f"✅ Analysis done for {location_name} "
+            f"{date_str} using {model_used}"
+        )
+
+    except Exception as exc:
+        print(f"❌ Gemini analysis failed: {exc}")
+
+        cached["analysis_status"] = "error"
+        cached["analysis_error"] = str(exc)
+        cached["analysis_failed_at"] = datetime.now(
+            timezone.utc
+        ).isoformat()
+
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=cache_key,
+            Body=json.dumps(cached),
+            ContentType="application/json",
+        )
+
+        return {"statusCode": 500}
+
     cached["status"] = "complete"
+    cached["activity_status"] = "ready"
+    cached["analysis_status"] = "ready"
+
     cached["analysis"] = ai_text
     cached["model_used"] = model_used
     cached["analysis_at"] = datetime.now(timezone.utc).isoformat()
 
-    # 5. Overwrite cache di S3
     try:
         s3.put_object(
             Bucket=BUCKET_NAME,
@@ -92,9 +153,11 @@ def handler(event, context):
             Body=json.dumps(cached),
             ContentType="application/json",
         )
+
         print(f"✅ Cache updated to complete: {cache_key}")
-    except Exception as e:
-        print(f"❌ Failed to write complete cache: {e}")
+
+    except Exception as exc:
+        print(f"❌ Failed to write complete cache: {exc}")
         return {"statusCode": 500}
 
     return {"statusCode": 200}

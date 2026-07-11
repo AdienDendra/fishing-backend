@@ -53,17 +53,23 @@ def handler(event, context):
         return {"statusCode": 500}
 
     cached["status"] = "activity_ready"
+    cached["activity_status"] = "ready"
+    cached["analysis_status"] = cached.get("analysis_status") or "pending"
+
     cached["activity_schema_version"] = "1.0"
     cached["astronomy"] = astronomy
     cached["fish_activity"] = fish_activity
-    # Backward-compatible aliases for current frontend weather-fetch.js.
+
+    # Backward-compatible aliases.
     cached["sr"] = astronomy.get("sunrise")
     cached["ss"] = astronomy.get("sunset")
     cached["major"] = fish_activity.get("major")
     cached["minor"] = fish_activity.get("minor")
     cached["low"] = fish_activity.get("low")
-    cached["activity_calculated_at"] = datetime.now(timezone.utc).isoformat()
 
+    cached["activity_calculated_at"] = datetime.now(
+        timezone.utc
+    ).isoformat()
 
     try:
         s3.put_object(

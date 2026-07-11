@@ -34,6 +34,23 @@ class WeatherCachePipeline:
         self.s3 = s3_client or boto3.client("s3")
         self.lambda_client = lambda_client or boto3.client("lambda")
 
+    def extract_hhmm(value: str | None) -> str | None:
+        """
+        Extract HH:MM from an Open-Meteo local ISO timestamp.
+
+        Example:
+            2026-07-10T07:00 -> 07:00
+        """
+        if not value:
+            return None
+
+        text = str(value)
+
+        if "T" in text and len(text) >= 16:
+            return text[11:16]
+
+        return text[:5] if len(text) >= 5 else None
+
     def fetch_weather_bundle(self, lat: float, lon: float):
         """
         Fetch marine, weather, tide, and sea coordinates from Open-Meteo.
@@ -76,8 +93,12 @@ class WeatherCachePipeline:
         - API on-demand cache
         - scheduled pre-warm cache
         """
+        
         payload = {
             "status": "partial",
+            "activity_status": "pending",
+            "analysis_status": "pending",
+
             "name": location_name,
             "lat": round(lat, 4),
             "lon": round(lon, 4),
@@ -85,6 +106,7 @@ class WeatherCachePipeline:
             "sea_lon": sea_lon,
             "date": date_str,
             "fetched_at": datetime.now(timezone.utc).isoformat(),
+
             "marine": {
                 key: value[start_idx:start_idx + 24]
                 for key, value in res_m.get("hourly", {}).items()
@@ -93,10 +115,17 @@ class WeatherCachePipeline:
                 key: value[start_idx:start_idx + 24]
                 for key, value in res_w.get("hourly", {}).items()
             },
-            "daily": filter_daily_for_date(res_w, date_str),
+
+            "daily": daily,
             "tide": filter_tide_for_date(res_t, date_str),
+
+            # Sunrise/sunset are already available from Open-Meteo.
+            "sr": extract_hhmm(daily.get("sunrise")),
+            "ss": extract_hhmm(daily.get("sunset")),
+
             "analysis": None,
             "model_used": None,
+
             "activity_schema_version": "1.0",
             "astronomy": None,
             "fish_activity": None,
