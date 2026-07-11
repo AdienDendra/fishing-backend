@@ -34,6 +34,7 @@ class WeatherCachePipeline:
         self.s3 = s3_client or boto3.client("s3")
         self.lambda_client = lambda_client or boto3.client("lambda")
 
+    @staticmethod
     def extract_hhmm(value: str | None) -> str | None:
         """
         Extract HH:MM from an Open-Meteo local ISO timestamp.
@@ -89,11 +90,12 @@ class WeatherCachePipeline:
         """
         Build the canonical partial weather cache payload.
 
-        This schema must stay aligned between:
-        - API on-demand cache
-        - scheduled pre-warm cache
+        Sunrise and sunset are extracted immediately from the Open-Meteo
+        daily response, while fish activity and AI analysis continue
+        asynchronously.
         """
-        
+        daily = filter_daily_for_date(res_w, date_str)
+
         payload = {
             "status": "partial",
             "activity_status": "pending",
@@ -119,9 +121,13 @@ class WeatherCachePipeline:
             "daily": daily,
             "tide": filter_tide_for_date(res_t, date_str),
 
-            # Sunrise/sunset are already available from Open-Meteo.
-            "sr": extract_hhmm(daily.get("sunrise")),
-            "ss": extract_hhmm(daily.get("sunset")),
+            # Available immediately from Open-Meteo.
+            "sr": WeatherCachePipeline.extract_hhmm(
+                daily.get("sunrise")
+            ),
+            "ss": WeatherCachePipeline.extract_hhmm(
+                daily.get("sunset")
+            ),
 
             "analysis": None,
             "model_used": None,

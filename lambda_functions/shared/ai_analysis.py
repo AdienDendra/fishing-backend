@@ -6,6 +6,15 @@ from google.genai import types
 # Adjusted to match the translated config variables
 from config import MODEL_LIST, WEATHER_AI_INSTRUCTIONS, SPECIES_AI_INSTRUCTIONS
 
+res = client.models.generate_content(
+    model=md,
+    contents=prompt_text,
+    config=types.GenerateContentConfig(
+        system_instruction=WEATHER_AI_INSTRUCTIONS,
+        temperature=0.2,
+        max_output_tokens=300,
+    ),
+)
 
 def generate_weather_analysis(client, location, date_str, data_points):
     """

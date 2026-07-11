@@ -2,7 +2,7 @@ import math
 import requests
 
 from datetime import datetime, timedelta
-from config import LUNAR_ANCHOR, LUNATION_CYCLE
+from config import LUNAR_ANCHOR, LUNATION_CYCLE, THE_LEAP_LAT, THE_LEAP_LON
 
 LUNAR_ANCHOR = datetime(*LUNAR_ANCHOR)
 
@@ -22,8 +22,8 @@ def get_local_tide_display_offset(lat, lon):
     calibrated_locations = [
         {
             "name": "The Leap, Kurnell",
-            "lat": -34.0049,
-            "lon": 151.2288,
+            "lat": THE_LEAP_LAT,
+            "lon": THE_LEAP_LON,
             "offset_m": 1.02,
             "radius_deg": 0.02,
         }
